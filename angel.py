@@ -7,17 +7,12 @@ from flask import Flask
 from dotenv import load_dotenv
 
 from telethon import TelegramClient, events
-from telethon.sessions import StringSession
-
 from settings import (
     setup_extra_handlers,
     load_initial_settings,
     is_admin,
-    get_all_target_channels,
-    add_target_channel,
-    remove_target_channel
+    get_all_target_channels
 )
-
 from angel_db import (
     is_forwarded_for_target,
     mark_as_forwarded_for_target,
@@ -27,7 +22,7 @@ from angel_db import (
 load_dotenv()
 
 API_ID = int(os.getenv("API_ID"))
-API_HASH = os.getenv("API_HASH")
+API_HASH = os.getenv("API_HASH"))
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 SOURCE_CHAT_ID = int(os.getenv("SOURCE_CHAT_ID"))
 STATUS_URL = os.getenv("STATUS_URL")
@@ -43,10 +38,10 @@ forwarding_enabled = True
 woodcraft.delay_seconds = 5
 woodcraft.skip_next_message = False
 
-
 # ================= Forward Logic =================
 async def send_without_tag(original_msg):
     targets = await get_all_target_channels()
+
     for target in targets:
         if await is_forwarded_for_target(original_msg.id, target):
             continue
@@ -82,38 +77,49 @@ async def new_message_handler(event):
 # ================= LOGIN SYSTEM =================
 login_state = {}
 
-
 @bot.on(events.NewMessage(pattern=r'^/login$'))
 async def login_start(event):
-    login_state[event.sender_id] = {}
-    await event.reply("📱 Send your phone number with country code.\nExample: +919876543210")
+    login_state[event.sender_id] = {"step": "phone"}
+    await event.reply("📱 Send phone number with country code\nExample: +919876543210")
 
 
 @bot.on(events.NewMessage)
 async def login_flow(event):
-    if event.sender_id not in login_state:
+    user = event.sender_id
+
+    if user not in login_state:
         return
 
-    state = login_state[event.sender_id]
+    state = login_state[user]
+    text = event.raw_text.strip()
 
-    if "phone" not in state:
-        state["phone"] = event.text.strip()
-        await woodcraft.send_code_request(state["phone"])
-        await event.reply("🔑 OTP sent. Send OTP now.")
+    # STEP 1 — PHONE
+    if state["step"] == "phone":
+        if not text.startswith("+"):
+            await event.reply("❌ Invalid phone format.")
+            return
+
+        state["phone"] = text
+        state["step"] = "otp"
+
+        await woodcraft.connect()
+        await woodcraft.send_code_request(text)
+
+        await event.reply("🔑 OTP sent. Now send OTP.")
         return
 
-    if "otp" not in state:
-        state["otp"] = event.text.strip()
+    # STEP 2 — OTP
+    if state["step"] == "otp":
         try:
-            await woodcraft.sign_in(state["phone"], state["otp"])
-            await event.reply("✅ Login successful! Restarting...")
-            login_state.pop(event.sender_id)
+            await woodcraft.sign_in(state["phone"], text)
+            await event.reply("✅ Login successful. Restarting...")
+            login_state.pop(user)
             os._exit(0)
         except Exception as e:
-            await event.reply(f"❌ Error: {e}")
+            await event.reply(f"❌ OTP Error: {e}")
 
 
-# ================= Commands =================
+# ================= Basic Commands =================
 @bot.on(events.NewMessage(pattern=r'^/status$'))
 async def status(event):
     if not is_admin(event.sender_id):
@@ -122,7 +128,7 @@ async def status(event):
     await bot.send_file(
         event.chat_id,
         file=STATUS_URL,
-        caption=f"📊 Total Forwarded: `{total}`",
+        caption=f"📊 Total Forwarded: `{total}`"
     )
 
 
@@ -148,7 +154,7 @@ async def main():
             woodcraft.run_until_disconnected()
         )
     else:
-        print("⚠️ Waiting for /login from bot...")
+        print("⚠️ Waiting for /login")
         setup_extra_handlers(bot)
         await bot.run_until_disconnected()
 
