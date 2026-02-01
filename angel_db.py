@@ -1,43 +1,71 @@
-# angel_db.py
-
 import os
-from dotenv import load_dotenv
 from pymongo import MongoClient
-from pymongo.errors import DuplicateKeyError
 
-load_dotenv()
-
-# ================= Mongo Connection =================
 MONGO_URI = os.getenv("MONGO_URI")
-mongo_client = MongoClient(MONGO_URI)
+mongo = MongoClient(MONGO_URI)
+db = mongo["forwardBot"]
 
-db = mongo_client["forwardBot"]
-
-# ================= Collections =================
-collection = db["forwarded_files"]
+targets_col = db["targets"]
+admins_col = db["admins"]
 settings_col = db["settings"]
-admin_col = db["admins"]
-extra_targets_col = db["extra_targets"]
-
-# Unique index to avoid duplicate forwarding
-collection.create_index(
-    [("message_id", 1), ("target_id", 1)],
-    unique=True
-)
-
-# ================= Helper Functions =================
-async def is_forwarded_for_target(msg_id, target_id):
-    return collection.find_one({
-        "message_id": msg_id,
-        "target_id": target_id
-    }) is not None
+count_col = db["count"]
 
 
-async def mark_as_forwarded_for_target(msg_id, target_id):
-    try:
-        collection.insert_one({
-            "message_id": msg_id,
-            "target_id": target_id
-        })
-    except DuplicateKeyError:
-        pass
+# ---------------- TARGETS ----------------
+
+def get_targets():
+    return [x["target_id"] for x in targets_col.find()]
+
+def add_target(tid):
+    targets_col.update_one(
+        {"target_id": tid},
+        {"$set": {"target_id": tid}},
+        upsert=True
+    )
+
+def remove_target(tid):
+    targets_col.delete_one({"target_id": tid})
+
+
+# ---------------- ADMINS ----------------
+
+def get_admins():
+    return [x["admin_id"] for x in admins_col.find()]
+
+def add_admin(uid):
+    admins_col.update_one(
+        {"admin_id": uid},
+        {"$set": {"admin_id": uid}},
+        upsert=True
+    )
+
+def remove_admin(uid):
+    admins_col.delete_one({"admin_id": uid})
+
+
+# ---------------- DELAY ----------------
+
+def get_delay():
+    s = settings_col.find_one({"key": "delay"})
+    return s["value"] if s else 2
+
+def set_delay(sec):
+    settings_col.update_one(
+        {"key": "delay"},
+        {"$set": {"value": sec}},
+        upsert=True
+    )
+
+
+# ---------------- COUNT ----------------
+
+def inc_count():
+    count_col.update_one(
+        {"key": "total"},
+        {"$inc": {"value": 1}},
+        upsert=True
+    )
+
+def get_count():
+    c = count_col.find_one({"key": "total"})
+    return c["value"] if c else 0
