@@ -1,5 +1,3 @@
-# angel.py
-
 import os
 import asyncio
 import threading
@@ -7,12 +5,14 @@ from flask import Flask
 from dotenv import load_dotenv
 
 from telethon import TelegramClient, events
+
 from settings import (
     setup_extra_handlers,
     load_initial_settings,
     is_admin,
     get_all_target_channels
 )
+
 from angel_db import (
     is_forwarded_for_target,
     mark_as_forwarded_for_target,
@@ -21,10 +21,10 @@ from angel_db import (
 
 load_dotenv()
 
-API_ID = int(os.getenv("API_ID")
+API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-SOURCE_CHAT_ID = int(os.getenv("SOURCE_CHAT_ID")
+SOURCE_CHAT_ID = int(os.getenv("SOURCE_CHAT_ID"))
 STATUS_URL = os.getenv("STATUS_URL")
 PORT = int(os.getenv("PORT", 8080))
 
@@ -37,6 +37,7 @@ woodcraft = TelegramClient("userbot", API_ID, API_HASH)
 forwarding_enabled = True
 woodcraft.delay_seconds = 5
 woodcraft.skip_next_message = False
+
 
 # ================= Forward Logic =================
 async def send_without_tag(original_msg):
@@ -93,7 +94,6 @@ async def login_flow(event):
     state = login_state[user]
     text = event.raw_text.strip()
 
-    # STEP 1 — PHONE
     if state["step"] == "phone":
         if not text.startswith("+"):
             await event.reply("❌ Invalid phone format.")
@@ -108,7 +108,6 @@ async def login_flow(event):
         await event.reply("🔑 OTP sent. Now send OTP.")
         return
 
-    # STEP 2 — OTP
     if state["step"] == "otp":
         try:
             await woodcraft.sign_in(state["phone"], text)
