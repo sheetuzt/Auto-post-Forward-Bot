@@ -21,10 +21,10 @@ STATUS_URL = os.getenv("STATUS_URL")
 SOURCE_CHAT_ID = int(os.getenv("SOURCE_CHAT_ID").strip().replace("\u200e",""))
 PORT = int(os.getenv("PORT", 8080))
 
-# ================= BOT CLIENT =================
+# 🤖 Bot Client
 bot = TelegramClient("bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
-# ================= USER CLIENT (Mongo Session) =================
+# 👤 User Client (Mongo session)
 session_data = settings_col.find_one({"key": "session"})
 if session_data:
     woodcraft = TelegramClient(StringSession(session_data["value"]), API_ID, API_HASH)
@@ -71,52 +71,77 @@ async def login_flow(event):
             upsert=True
         )
 
-        await event.reply("✅ Login successful! User session saved.")
+        await event.reply("✅ Login successful! Session saved.")
         del login_state[uid]
 
-# ================= FORWARD FUNCTION (unchanged) =================
+# ================= FORWARD =================
 async def send_without_tag(original_msg):
-    try:
-        targets = await get_all_target_channels()
-        for target in targets:
-            if await is_forwarded_for_target(original_msg.id, target):
-                continue
+    targets = await get_all_target_channels()
+    for target in targets:
+        if await is_forwarded_for_target(original_msg.id, target):
+            continue
 
-            if original_msg.media:
-                await woodcraft.send_file(
-                    target,
-                    file=original_msg.media,
-                    caption=original_msg.text,
-                    silent=True
-                )
-            else:
-                await woodcraft.send_message(
-                    target,
-                    original_msg.text,
-                    formatting_entities=original_msg.entities,
-                    silent=True
-                )
+        if original_msg.media:
+            await woodcraft.send_file(
+                target,
+                file=original_msg.media,
+                caption=original_msg.text,
+                silent=True
+            )
+        else:
+            await woodcraft.send_message(
+                target,
+                original_msg.text,
+                formatting_entities=original_msg.entities,
+                silent=True
+            )
 
-            await mark_as_forwarded_for_target(original_msg.id, target)
-            await asyncio.sleep(woodcraft.delay_seconds)
+        await mark_as_forwarded_for_target(original_msg.id, target)
+        await asyncio.sleep(woodcraft.delay_seconds)
 
-    except FloodWaitError as e:
-        await asyncio.sleep(e.seconds + 5)
-        await send_without_tag(original_msg)
-
-# ================= STATUS COMMAND FROM BOT =================
-@bot.on(events.NewMessage(pattern="/status"))
-async def status(event):
-    total = collection.count_documents({})
-    await event.reply(f"📊 Total Forwarded: `{total}`", parse_mode='md')
-
-# ================= LISTEN SOURCE =================
 @woodcraft.on(events.NewMessage(chats=SOURCE_CHAT_ID))
 async def new_message_handler(event):
     if forwarding_enabled and not woodcraft.skip_next_message:
         await asyncio.sleep(woodcraft.delay_seconds)
         await send_without_tag(event.message)
 
+# ================= BOT COMMANDS (original) =================
+@bot.on(events.NewMessage(pattern=r'^/on$'))
+async def on_handler(event):
+    global forwarding_enabled
+    forwarding_enabled = True
+    await event.reply("✅ Forwarding ON")
+
+@bot.on(events.NewMessage(pattern=r'^/off$'))
+async def off_handler(event):
+    global forwarding_enabled
+    forwarding_enabled = False
+    await event.reply("❌ Forwarding OFF")
+
+@bot.on(events.NewMessage(pattern=r'^/addtarget\s+(-?\d+)$'))
+async def addtarget_handler(event):
+    chat_id = int(event.pattern_match.group(1))
+    await add_target_channel(chat_id)
+    await event.reply(f"✅ Target added `{chat_id}`")
+
+@bot.on(events.NewMessage(pattern=r'^/removetarget\s+(-?\d+)$'))
+async def removetarget_handler(event):
+    chat_id = int(event.pattern_match.group(1))
+    await remove_target_channel(chat_id)
+    await event.reply(f"❌ Target removed `{chat_id}`")
+
+@bot.on(events.NewMessage(pattern=r'^/listtargets$'))
+async def list_targets_handler(event):
+    targets = await get_all_target_channels()
+    msg = "\n".join(f"`{t}`" for t in targets) if targets else "No targets"
+    await event.reply(msg)
+
+@bot.on(events.NewMessage(pattern=r'^/count$'))
+async def count_handler(event):
+    total = collection.count_documents({})
+    await event.reply(f"📊 Total Forwarded: `{total}`", parse_mode='md')
+
+# settings.py ke commands bot pe attach
 # ================= WEB =================
 @app.route("/")
 def home():
@@ -132,7 +157,7 @@ async def main():
         print("⚠️ Login required via bot /login")
 
     await load_initial_settings(woodcraft)
-    setup_extra_handlers(bot)   # commands now bot se chalenge
+    setup_extra_handlers(bot)
 
     await asyncio.gather(
         woodcraft.run_until_disconnected(),
