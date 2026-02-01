@@ -1,58 +1,43 @@
-import os
-import sys
-import asyncio
-from datetime import datetime, timedelta
-from dotenv import load_dotenv
-from telethon import events
+# angel_db.py
 
-from angel_db import settings_col, admin_col, extra_targets_col
+import os
+from dotenv import load_dotenv
+from pymongo import MongoClient
+from pymongo.errors import DuplicateKeyError
 
 load_dotenv()
 
-DEFAULT_ADMINS = [int(x) for x in os.getenv("DEFAULT_ADMINS", "").split(",") if x.strip()]
+# ================= Mongo Connection =================
+MONGO_URI = os.getenv("MONGO_URI")
+mongo_client = MongoClient(MONGO_URI)
 
-def is_admin(user_id):
-    return user_id in DEFAULT_ADMINS or admin_col.find_one({"user_id": user_id})
+db = mongo_client["forwardBot"]
 
-async def get_all_target_channels():
-    return [doc["chat_id"] for doc in extra_targets_col.find()]
+# ================= Collections =================
+collection = db["forwarded_files"]
+settings_col = db["settings"]
+admin_col = db["admins"]
+extra_targets_col = db["extra_targets"]
 
-async def add_target_channel(chat_id):
-    extra_targets_col.update_one({"chat_id": chat_id}, {"$set": {"chat_id": chat_id}}, upsert=True)
+# Unique index to avoid duplicate forwarding
+collection.create_index(
+    [("message_id", 1), ("target_id", 1)],
+    unique=True
+)
 
-async def remove_target_channel(chat_id):
-    extra_targets_col.delete_one({"chat_id": chat_id})
+# ================= Helper Functions =================
+async def is_forwarded_for_target(msg_id, target_id):
+    return collection.find_one({
+        "message_id": msg_id,
+        "target_id": target_id
+    }) is not None
 
-def setup_extra_handlers(client):
 
-    @client.on(events.NewMessage(pattern=r'^/setdelay (\d+)$'))
-    async def set_delay(event):
-        seconds = int(event.pattern_match.group(1))
-        settings_col.update_one({"key": "delay"}, {"$set": {"value": seconds}}, upsert=True)
-        client.delay_seconds = seconds
-        await event.reply(f"⏱ Delay set: {seconds}s")
-
-    @client.on(events.NewMessage(pattern=r'^/skip$'))
-    async def skip_msg(event):
-        settings_col.update_one({"key": "skip_next"}, {"$set": {"value": True}}, upsert=True)
-        client.skip_next_message = True
-        await event.reply("⏭ Next message skipped")
-
-    @client.on(events.NewMessage(pattern=r'^/resume$'))
-    async def resume(event):
-        settings_col.update_one({"key": "skip_next"}, {"$set": {"value": False}}, upsert=True)
-        client.skip_next_message = False
-        await event.reply("▶ Forwarding resumed")
-
-    @client.on(events.NewMessage(pattern=r'^/restart$'))
-    async def restart_bot(event):
-        await event.reply("♻ Restarting...")
-        await asyncio.sleep(2)
-        sys.exit(0)
-
-async def load_initial_settings(client):
-    delay = settings_col.find_one({"key": "delay"})
-    client.delay_seconds = delay["value"] if delay else 5
-
-    skip = settings_col.find_one({"key": "skip_next"})
-    client.skip_next_message = skip["value"] if skip else False
+async def mark_as_forwarded_for_target(msg_id, target_id):
+    try:
+        collection.insert_one({
+            "message_id": msg_id,
+            "target_id": target_id
+        })
+    except DuplicateKeyError:
+        pass
