@@ -1,13 +1,13 @@
 import os
-from dotenv import load_dotenv
 import asyncio
 import threading
 from flask import Flask
+from dotenv import load_dotenv
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from telethon.errors import FloodWaitError
 
-from settings import setup_extra_handlers, load_initial_settings, is_admin, DEFAULT_ADMINS
+from settings import setup_extra_handlers, load_initial_settings, is_admin
 from settings import get_all_target_channels, add_target_channel, remove_target_channel
 from angel_db import is_forwarded_for_target, mark_as_forwarded_for_target
 from angel_db import collection, settings_col
@@ -16,11 +16,15 @@ load_dotenv()
 
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 STATUS_URL = os.getenv("STATUS_URL")
-SOURCE_CHAT_ID = int(os.getenv("SOURCE_CHAT_ID"))
+SOURCE_CHAT_ID = int(os.getenv("SOURCE_CHAT_ID").strip().replace("\u200e",""))
 PORT = int(os.getenv("PORT", 8080))
 
-# ===== LOAD SESSION FROM MONGODB (Render Safe) =====
+# ================= BOT CLIENT =================
+bot = TelegramClient("bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+
+# ================= USER CLIENT (Mongo Session) =================
 session_data = settings_col.find_one({"key": "session"})
 if session_data:
     woodcraft = TelegramClient(StringSession(session_data["value"]), API_ID, API_HASH)
@@ -29,71 +33,66 @@ else:
 
 woodcraft.delay_seconds = 5
 woodcraft.skip_next_message = False
-app = Flask(__name__)
 forwarding_enabled = True
+app = Flask(__name__)
 
-# ================= LOGIN VIA SAVED MESSAGES =================
+# ================= LOGIN VIA BOT =================
 login_state = {}
 
-@woodcraft.on(events.NewMessage(pattern=r'^/login$', from_users='me'))
+@bot.on(events.NewMessage(pattern="/login"))
 async def login_start(event):
-    login_state["step"] = "phone"
-    await event.reply("📱 Phone number bhejo country code ke sath. Example: +919876543210")
+    login_state[event.sender_id] = {"step": "phone"}
+    await event.reply("📱 Send phone number with country code")
 
-@woodcraft.on(events.NewMessage(from_users='me'))
+@bot.on(events.NewMessage)
 async def login_flow(event):
-    if "step" not in login_state:
+    uid = event.sender_id
+    if uid not in login_state:
         return
 
-    if login_state["step"] == "phone":
+    state = login_state[uid]
+
+    if state["step"] == "phone":
         phone = event.text.strip()
-        login_state["phone"] = phone
+        state["phone"] = phone
+        await woodcraft.connect()
         await woodcraft.send_code_request(phone)
-        login_state["step"] = "otp"
-        await event.reply("🔐 OTP bhejo")
+        state["step"] = "otp"
+        await event.reply("🔐 Send OTP")
 
-    elif login_state["step"] == "otp":
+    elif state["step"] == "otp":
         otp = event.text.strip()
-        try:
-            await woodcraft.sign_in(login_state["phone"], otp)
+        await woodcraft.sign_in(state["phone"], otp)
 
-            # ✅ SAVE SESSION TO MONGODB
-            session_str = woodcraft.session.save()
-            settings_col.update_one(
-                {"key": "session"},
-                {"$set": {"value": session_str}},
-                upsert=True
-            )
+        session_str = woodcraft.session.save()
+        settings_col.update_one(
+            {"key": "session"},
+            {"$set": {"value": session_str}},
+            upsert=True
+        )
 
-            await event.reply("✅ Login successful! Session MongoDB me save ho gaya.")
-            login_state.clear()
+        await event.reply("✅ Login successful! User session saved.")
+        del login_state[uid]
 
-        except Exception as e:
-            await event.reply(f"❌ Error: {e}")
-
-# ================= REST OF YOUR ORIGINAL CODE SAME =================
+# ================= FORWARD FUNCTION (unchanged) =================
 async def send_without_tag(original_msg):
     try:
         targets = await get_all_target_channels()
-        if not targets:
-            print("⚠️ There is no target channel!")
-            return False
-
         for target in targets:
             if await is_forwarded_for_target(original_msg.id, target):
                 continue
 
             if original_msg.media:
                 await woodcraft.send_file(
-                    entity=target,
+                    target,
                     file=original_msg.media,
                     caption=original_msg.text,
                     silent=True
                 )
             else:
                 await woodcraft.send_message(
-                    entity=target,
-                    message=original_msg.text,
+                    target,
+                    original_msg.text,
                     formatting_entities=original_msg.entities,
                     silent=True
                 )
@@ -105,36 +104,40 @@ async def send_without_tag(original_msg):
         await asyncio.sleep(e.seconds + 5)
         await send_without_tag(original_msg)
 
-@woodcraft.on(events.NewMessage(pattern=r'^/status$'))
+# ================= STATUS COMMAND FROM BOT =================
+@bot.on(events.NewMessage(pattern="/status"))
 async def status(event):
-    if not is_admin(event.sender_id):
-        return
+    total = collection.count_documents({})
+    await event.reply(f"📊 Total Forwarded: `{total}`", parse_mode='md')
 
-    total_forwarded_files = collection.count_documents({})
-    await woodcraft.send_file(
-        event.chat_id,
-        file=STATUS_URL,
-        caption=f"Forwarded: `{total_forwarded_files}`",
-        parse_mode='md'
-    )
-
+# ================= LISTEN SOURCE =================
 @woodcraft.on(events.NewMessage(chats=SOURCE_CHAT_ID))
 async def new_message_handler(event):
-    global forwarding_enabled
     if forwarding_enabled and not woodcraft.skip_next_message:
         await asyncio.sleep(woodcraft.delay_seconds)
         await send_without_tag(event.message)
 
+# ================= WEB =================
 @app.route("/")
 def home():
-    return "🤖 Angel Userbot Running", 200
+    return "Angel Bot Running", 200
 
+# ================= MAIN =================
 async def main():
-    await woodcraft.start()
-    print("✅ Bot started")
+    await woodcraft.connect()
+
+    if await woodcraft.is_user_authorized():
+        print("✅ User session loaded")
+    else:
+        print("⚠️ Login required via bot /login")
+
     await load_initial_settings(woodcraft)
-    setup_extra_handlers(woodcraft)
-    await woodcraft.run_until_disconnected()
+    setup_extra_handlers(bot)   # commands now bot se chalenge
+
+    await asyncio.gather(
+        woodcraft.run_until_disconnected(),
+        bot.run_until_disconnected()
+    )
 
 if __name__ == "__main__":
     threading.Thread(target=app.run, kwargs={"host": "0.0.0.0", "port": PORT}).start()
