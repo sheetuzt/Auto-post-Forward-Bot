@@ -1,167 +1,215 @@
 import os
 import asyncio
-import threading
-from flask import Flask
-from dotenv import load_dotenv
-
 from telethon import TelegramClient, events
-
-from settings import (
-    setup_extra_handlers,
-    load_initial_settings,
-    is_admin,
-    get_all_target_channels
-)
-
 from angel_db import (
-    is_forwarded_for_target,
-    mark_as_forwarded_for_target,
-    collection
+    get_targets, add_target, remove_target,
+    add_admin, remove_admin, get_admins,
+    get_delay, set_delay, inc_count, get_count
 )
-
-load_dotenv()
 
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-SOURCE_CHAT_ID = int(os.getenv("SOURCE_CHAT_ID"))
-STATUS_URL = os.getenv("STATUS_URL")
-PORT = int(os.getenv("PORT", 8080))
 
-app = Flask(__name__)
+bot = TelegramClient("bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+user = TelegramClient("user", API_ID, API_HASH)
 
-# ================= Clients =================
-bot = TelegramClient("bot", API_ID, API_HASH)
-woodcraft = TelegramClient("userbot", API_ID, API_HASH)
-
-forwarding_enabled = True
-woodcraft.delay_seconds = 5
-woodcraft.skip_next_message = False
-
-
-# ================= Forward Logic =================
-async def send_without_tag(original_msg):
-    targets = await get_all_target_channels()
-
-    for target in targets:
-        if await is_forwarded_for_target(original_msg.id, target):
-            continue
-
-        if original_msg.media:
-            await woodcraft.send_file(
-                target,
-                file=original_msg.media,
-                caption=original_msg.text,
-                silent=True
-            )
-        else:
-            await woodcraft.send_message(
-                target,
-                original_msg.text,
-                formatting_entities=original_msg.entities,
-                silent=True
-            )
-
-        await mark_as_forwarded_for_target(original_msg.id, target)
-        await asyncio.sleep(woodcraft.delay_seconds)
-
-
-@woodcraft.on(events.NewMessage(chats=SOURCE_CHAT_ID))
-async def new_message_handler(event):
-    if forwarding_enabled and not woodcraft.skip_next_message:
-        await asyncio.sleep(woodcraft.delay_seconds)
-        await send_without_tag(event.message)
-    elif woodcraft.skip_next_message:
-        woodcraft.skip_next_message = False
-
-
-# ================= LOGIN SYSTEM =================
 login_state = {}
+forwarding_on = False
+skip_next = False
 
-@bot.on(events.NewMessage(pattern=r'^/login$'))
-async def login_start(event):
+
+# -------------------- HELPERS --------------------
+
+def is_admin_user(uid):
+    return uid in get_admins()
+
+
+# -------------------- START --------------------
+
+@bot.on(events.NewMessage(pattern="/start"))
+async def start(event):
+    await event.reply("🤖 Auto Forward Bot Ready\n/login to connect account")
+
+
+# -------------------- LOGIN --------------------
+
+@bot.on(events.NewMessage(pattern="/login"))
+async def login_cmd(event):
     login_state[event.sender_id] = {"step": "phone"}
-    await event.reply("📱 Send phone number with country code\nExample: +919876543210")
+    await event.reply("📱 Send phone with country code\nExample: +919876543210")
 
 
-@bot.on(events.NewMessage)
+@bot.on(events.NewMessage(func=lambda e: e.is_private and not e.raw_text.startswith("/")))
 async def login_flow(event):
-    user = event.sender_id
-
-    if user not in login_state:
+    if event.sender_id not in login_state:
         return
 
-    state = login_state[user]
+    state = login_state[event.sender_id]
     text = event.raw_text.strip()
 
     if state["step"] == "phone":
         if not text.startswith("+"):
-            await event.reply("❌ Invalid phone format.")
-            return
+            return await event.reply("❌ Invalid phone format")
 
         state["phone"] = text
         state["step"] = "otp"
 
-        await woodcraft.connect()
-        await woodcraft.send_code_request(text)
-
-        await event.reply("🔑 OTP sent. Now send OTP.")
-        return
+        await user.connect()
+        await user.send_code_request(text)
+        return await event.reply("🔑 OTP sent. Send OTP")
 
     if state["step"] == "otp":
         try:
-            await woodcraft.sign_in(state["phone"], text)
-            await event.reply("✅ Login successful. Restarting...")
-            login_state.pop(user)
+            await user.sign_in(state["phone"], text)
+            await event.reply("✅ Login success. Restarting...")
             os._exit(0)
         except Exception as e:
-            await event.reply(f"❌ OTP Error: {e}")
+            await event.reply(f"❌ OTP Error {e}")
 
 
-# ================= Basic Commands =================
-@bot.on(events.NewMessage(pattern=r'^/status$'))
+# -------------------- BASIC CONTROLS --------------------
+
+@bot.on(events.NewMessage(pattern="/on"))
+async def on_cmd(event):
+    global forwarding_on
+    forwarding_on = True
+    await event.reply("✅ Forwarding ON")
+
+
+@bot.on(events.NewMessage(pattern="/off"))
+async def off_cmd(event):
+    global forwarding_on
+    forwarding_on = False
+    await event.reply("🛑 Forwarding OFF")
+
+
+@bot.on(events.NewMessage(pattern="/status"))
 async def status(event):
-    if not is_admin(event.sender_id):
+    await event.reply(f"⚡ Forwarding: {forwarding_on}\nDelay: {get_delay()} sec")
+
+
+@bot.on(events.NewMessage(pattern="/restart"))
+async def restart(event):
+    await event.reply("♻️ Restarting...")
+    os._exit(0)
+
+
+# -------------------- DELAY --------------------
+
+@bot.on(events.NewMessage(pattern="/setdelay"))
+async def setdelay(event):
+    if not is_admin_user(event.sender_id):
         return
-    total = collection.count_documents({})
-    await bot.send_file(
-        event.chat_id,
-        file=STATUS_URL,
-        caption=f"📊 Total Forwarded: `{total}`"
+    sec = int(event.raw_text.split()[-1])
+    set_delay(sec)
+    await event.reply(f"⏱ Delay set to {sec}s")
+
+
+# -------------------- ADMINS --------------------
+
+@bot.on(events.NewMessage(pattern="/addadmin"))
+async def addadmin_cmd(event):
+    uid = int(event.raw_text.split()[-1])
+    add_admin(uid)
+    await event.reply(f"✅ Admin {uid} added")
+
+
+@bot.on(events.NewMessage(pattern="/removeadmin"))
+async def removeadmin_cmd(event):
+    uid = int(event.raw_text.split()[-1])
+    remove_admin(uid)
+    await event.reply(f"❌ Admin {uid} removed")
+
+
+# -------------------- TARGETS --------------------
+
+@bot.on(events.NewMessage(pattern="/addtarget"))
+async def addtarget_cmd(event):
+    tid = int(event.raw_text.split()[-1])
+    add_target(tid)
+    await event.reply(f"✅ Target {tid} added")
+
+
+@bot.on(events.NewMessage(pattern="/removetarget"))
+async def removetarget_cmd(event):
+    tid = int(event.raw_text.split()[-1])
+    remove_target(tid)
+    await event.reply(f"❌ Target {tid} removed")
+
+
+@bot.on(events.NewMessage(pattern="/listtargets"))
+async def listtargets_cmd(event):
+    targets = get_targets()
+    await event.reply("\n".join(map(str, targets)))
+
+
+# -------------------- COUNT --------------------
+
+@bot.on(events.NewMessage(pattern="/count"))
+async def count_cmd(event):
+    await event.reply(f"📊 Total Forwarded: {get_count()}")
+
+
+# -------------------- SKIP / RESUME --------------------
+
+@bot.on(events.NewMessage(pattern="/skip"))
+async def skip_cmd(event):
+    global skip_next
+    skip_next = True
+    await event.reply("⏭ Next message skipped")
+
+
+@bot.on(events.NewMessage(pattern="/resume"))
+async def resume_cmd(event):
+    global skip_next
+    skip_next = False
+    await event.reply("▶️ Resumed")
+
+
+# -------------------- NOOR --------------------
+
+@bot.on(events.NewMessage(pattern="/noor"))
+async def noor_cmd(event):
+    await event.reply(
+        f"⚡ Status Report\nForwarding: {forwarding_on}\n"
+        f"Targets: {len(get_targets())}\n"
+        f"Delay: {get_delay()}s\n"
+        f"Count: {get_count()}"
     )
 
 
-# ================= Flask =================
-@app.route("/")
-def home():
-    return "Bot running", 200
+# -------------------- FORWARDER --------------------
+
+@user.on(events.NewMessage(incoming=True))
+async def forwarder(event):
+    global skip_next
+
+    if not forwarding_on:
+        return
+
+    if skip_next:
+        skip_next = False
+        return
+
+    for t in get_targets():
+        try:
+            await user.forward_messages(t, event.message)
+            inc_count()
+            await asyncio.sleep(get_delay())
+        except:
+            pass
 
 
-# ================= Main =================
+# -------------------- MAIN --------------------
+
 async def main():
-    await bot.start(bot_token=BOT_TOKEN)
-    await woodcraft.connect()
+    await bot.start()
+    await user.start()
+    print("✅ Bot Running")
+    await asyncio.gather(
+        bot.run_until_disconnected(),
+        user.run_until_disconnected()
+    )
 
-    if await woodcraft.is_user_authorized():
-        print("✅ User logged in")
-
-        await load_initial_settings(woodcraft)
-        setup_extra_handlers(bot)
-
-        await asyncio.gather(
-            bot.run_until_disconnected(),
-            woodcraft.run_until_disconnected()
-        )
-    else:
-        print("⚠️ Waiting for /login")
-        setup_extra_handlers(bot)
-        await bot.run_until_disconnected()
-
-
-if __name__ == "__main__":
-    threading.Thread(
-        target=app.run,
-        kwargs={"host": "0.0.0.0", "port": PORT},
-    ).start()
-
-    asyncio.run(main())
+asyncio.run(main())
