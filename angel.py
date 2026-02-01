@@ -1,215 +1,155 @@
 import os
 import asyncio
+from dotenv import load_dotenv
 from telethon import TelegramClient, events
-from angel_db import (
-    get_targets, add_target, remove_target,
-    add_admin, remove_admin, get_admins,
-    get_delay, set_delay, inc_count, get_count
-)
+from telethon.sessions import StringSession
+from angel_db import *
+
+load_dotenv()
 
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+SOURCE_CHAT_ID = int(os.getenv("SOURCE_CHAT_ID"))
 
+# ================= CLIENTS =================
 bot = TelegramClient("bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
-user = TelegramClient("user", API_ID, API_HASH)
 
-login_state = {}
-forwarding_on = False
+user_session = load_session()
+userbot = TelegramClient(StringSession(user_session) if user_session else StringSession(), API_ID, API_HASH)
+
+forwarding = True
+delay_seconds = 5
 skip_next = False
+login_state = {}
 
-
-# -------------------- HELPERS --------------------
-
-def is_admin_user(uid):
-    return uid in get_admins()
-
-
-# -------------------- START --------------------
-
-@bot.on(events.NewMessage(pattern="/start"))
-async def start(event):
-    await event.reply("🤖 Auto Forward Bot Ready\n/login to connect account")
-
-
-# -------------------- LOGIN --------------------
-
+# ================= LOGIN =================
 @bot.on(events.NewMessage(pattern="/login"))
-async def login_cmd(event):
-    login_state[event.sender_id] = {"step": "phone"}
-    await event.reply("📱 Send phone with country code\nExample: +919876543210")
+async def login(e):
+    login_state[e.sender_id] = {"step": "phone"}
+    await e.reply("📱 Send phone number with country code")
 
-
-@bot.on(events.NewMessage(func=lambda e: e.is_private and not e.raw_text.startswith("/")))
-async def login_flow(event):
-    if event.sender_id not in login_state:
+@bot.on(events.NewMessage)
+async def login_flow(e):
+    if e.sender_id not in login_state:
         return
 
-    state = login_state[event.sender_id]
-    text = event.raw_text.strip()
+    state = login_state[e.sender_id]
 
     if state["step"] == "phone":
-        if not text.startswith("+"):
-            return await event.reply("❌ Invalid phone format")
+        state["phone"] = e.text.strip()
+        await userbot.connect()
+        await userbot.send_code_request(state["phone"])
+        state["step"] = "code"
+        await e.reply("✉️ OTP bhejo")
 
-        state["phone"] = text
-        state["step"] = "otp"
+    elif state["step"] == "code":
+        await userbot.sign_in(state["phone"], e.text.strip())
+        session_str = userbot.session.save()
+        save_session(session_str)
+        login_state.pop(e.sender_id)
+        await e.reply("✅ Login successful")
 
-        await user.connect()
-        await user.send_code_request(text)
-        return await event.reply("🔑 OTP sent. Send OTP")
-
-    if state["step"] == "otp":
-        try:
-            await user.sign_in(state["phone"], text)
-            await event.reply("✅ Login success. Restarting...")
-            os._exit(0)
-        except Exception as e:
-            await event.reply(f"❌ OTP Error {e}")
-
-
-# -------------------- BASIC CONTROLS --------------------
-
-@bot.on(events.NewMessage(pattern="/on"))
-async def on_cmd(event):
-    global forwarding_on
-    forwarding_on = True
-    await event.reply("✅ Forwarding ON")
-
-
-@bot.on(events.NewMessage(pattern="/off"))
-async def off_cmd(event):
-    global forwarding_on
-    forwarding_on = False
-    await event.reply("🛑 Forwarding OFF")
-
-
-@bot.on(events.NewMessage(pattern="/status"))
-async def status(event):
-    await event.reply(f"⚡ Forwarding: {forwarding_on}\nDelay: {get_delay()} sec")
-
-
-@bot.on(events.NewMessage(pattern="/restart"))
-async def restart(event):
-    await event.reply("♻️ Restarting...")
-    os._exit(0)
-
-
-# -------------------- DELAY --------------------
-
-@bot.on(events.NewMessage(pattern="/setdelay"))
-async def setdelay(event):
-    if not is_admin_user(event.sender_id):
-        return
-    sec = int(event.raw_text.split()[-1])
-    set_delay(sec)
-    await event.reply(f"⏱ Delay set to {sec}s")
-
-
-# -------------------- ADMINS --------------------
-
-@bot.on(events.NewMessage(pattern="/addadmin"))
-async def addadmin_cmd(event):
-    uid = int(event.raw_text.split()[-1])
-    add_admin(uid)
-    await event.reply(f"✅ Admin {uid} added")
-
-
-@bot.on(events.NewMessage(pattern="/removeadmin"))
-async def removeadmin_cmd(event):
-    uid = int(event.raw_text.split()[-1])
-    remove_admin(uid)
-    await event.reply(f"❌ Admin {uid} removed")
-
-
-# -------------------- TARGETS --------------------
-
-@bot.on(events.NewMessage(pattern="/addtarget"))
-async def addtarget_cmd(event):
-    tid = int(event.raw_text.split()[-1])
-    add_target(tid)
-    await event.reply(f"✅ Target {tid} added")
-
-
-@bot.on(events.NewMessage(pattern="/removetarget"))
-async def removetarget_cmd(event):
-    tid = int(event.raw_text.split()[-1])
-    remove_target(tid)
-    await event.reply(f"❌ Target {tid} removed")
-
-
-@bot.on(events.NewMessage(pattern="/listtargets"))
-async def listtargets_cmd(event):
-    targets = get_targets()
-    await event.reply("\n".join(map(str, targets)))
-
-
-# -------------------- COUNT --------------------
-
-@bot.on(events.NewMessage(pattern="/count"))
-async def count_cmd(event):
-    await event.reply(f"📊 Total Forwarded: {get_count()}")
-
-
-# -------------------- SKIP / RESUME --------------------
-
-@bot.on(events.NewMessage(pattern="/skip"))
-async def skip_cmd(event):
+# ================= FORWARD =================
+async def forward_message(msg):
     global skip_next
-    skip_next = True
-    await event.reply("⏭ Next message skipped")
-
-
-@bot.on(events.NewMessage(pattern="/resume"))
-async def resume_cmd(event):
-    global skip_next
-    skip_next = False
-    await event.reply("▶️ Resumed")
-
-
-# -------------------- NOOR --------------------
-
-@bot.on(events.NewMessage(pattern="/noor"))
-async def noor_cmd(event):
-    await event.reply(
-        f"⚡ Status Report\nForwarding: {forwarding_on}\n"
-        f"Targets: {len(get_targets())}\n"
-        f"Delay: {get_delay()}s\n"
-        f"Count: {get_count()}"
-    )
-
-
-# -------------------- FORWARDER --------------------
-
-@user.on(events.NewMessage(incoming=True))
-async def forwarder(event):
-    global skip_next
-
-    if not forwarding_on:
-        return
 
     if skip_next:
         skip_next = False
         return
 
-    for t in get_targets():
-        try:
-            await user.forward_messages(t, event.message)
-            inc_count()
-            await asyncio.sleep(get_delay())
-        except:
-            pass
+    targets = get_targets()
+    for t in targets:
+        if not is_forwarded(msg.id, t):
+            if msg.media:
+                await userbot.send_file(t, msg.media, caption=msg.text)
+            else:
+                await userbot.send_message(t, msg.text)
+            mark_forwarded(msg.id, t)
+            await asyncio.sleep(delay_seconds)
 
+@userbot.on(events.NewMessage(chats=SOURCE_CHAT_ID))
+async def handler(e):
+    if forwarding:
+        await forward_message(e.message)
 
-# -------------------- MAIN --------------------
+# ================= COMMANDS =================
+@bot.on(events.NewMessage(pattern="/start"))
+async def start(e):
+    await e.reply("🤖 Angel Forward Bot Ready")
 
+@bot.on(events.NewMessage(pattern="/on"))
+async def on_cmd(e):
+    global forwarding
+    forwarding = True
+    await e.reply("✅ Forwarding ON")
+
+@bot.on(events.NewMessage(pattern="/off"))
+async def off_cmd(e):
+    global forwarding
+    forwarding = False
+    await e.reply("❌ Forwarding OFF")
+
+@bot.on(events.NewMessage(pattern="/status"))
+async def status(e):
+    await e.reply(f"Forwarding: {forwarding}\nDelay: {delay_seconds}s")
+
+@bot.on(events.NewMessage(pattern=r"/setdelay (\d+)"))
+async def setdelay(e):
+    global delay_seconds
+    delay_seconds = int(e.pattern_match.group(1))
+    await e.reply(f"⏱ Delay set to {delay_seconds}")
+
+@bot.on(events.NewMessage(pattern=r"/addtarget (-?\d+)"))
+async def addtarget(e):
+    add_target(int(e.pattern_match.group(1)))
+    await e.reply("✅ Target added")
+
+@bot.on(events.NewMessage(pattern=r"/removetarget (-?\d+)"))
+async def removetarget(e):
+    remove_target(int(e.pattern_match.group(1)))
+    await e.reply("❌ Target removed")
+
+@bot.on(events.NewMessage(pattern="/listtargets"))
+async def listtargets(e):
+    await e.reply(str(get_targets()))
+
+@bot.on(events.NewMessage(pattern="/skip"))
+async def skip(e):
+    global skip_next
+    skip_next = True
+    await e.reply("⏭ Skipping next")
+
+@bot.on(events.NewMessage(pattern="/resume"))
+async def resume(e):
+    global forwarding
+    forwarding = True
+    await e.reply("▶️ Resumed")
+
+@bot.on(events.NewMessage(pattern="/count"))
+async def count(e):
+    await e.reply(f"📊 {get_count()} forwarded")
+
+@bot.on(events.NewMessage(pattern="/noor"))
+async def noor(e):
+    txt = f"""
+📊 Detailed Report
+Forwarding: {forwarding}
+Targets: {len(get_targets())}
+Total Forwarded: {get_count()}
+Delay: {delay_seconds}s
+"""
+    await e.reply(txt)
+
+@bot.on(events.NewMessage(pattern="/restart"))
+async def restart(e):
+    await e.reply("♻️ Restarting")
+    os._exit(0)
+
+# ================= MAIN =================
 async def main():
-    await bot.start()
-    await user.start()
-    print("✅ Bot Running")
-    await asyncio.gather(
-        bot.run_until_disconnected(),
-        user.run_until_disconnected()
-    )
+    await userbot.start()
+    print("Userbot started")
+    await bot.run_until_disconnected()
 
 asyncio.run(main())
