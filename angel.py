@@ -21,10 +21,10 @@ from angel_db import (
 
 load_dotenv()
 
-API_ID = int(os.getenv("API_ID"))
-API_HASH = os.getenv("API_HASH"))
+API_ID = int(os.getenv("API_ID")
+API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-SOURCE_CHAT_ID = int(os.getenv("SOURCE_CHAT_ID"))
+SOURCE_CHAT_ID = int(os.getenv("SOURCE_CHAT_ID")
 STATUS_URL = os.getenv("STATUS_URL")
 PORT = int(os.getenv("PORT", 8080))
 
