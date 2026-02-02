@@ -46,7 +46,9 @@ We’ve added several useful features and commands to help you control the bot b
          /ban [ID] - 🚫 User ban karein
          /unban [ID] - 😇 User unban karein
          /removeuser [ID] - 🗑 User data wipe karein
-         /restart - ♻ Bot restart karein```
+         /restart - ♻ Bot restart karein
+
+   ```
 
 -----
 
