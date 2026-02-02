@@ -17,11 +17,17 @@ sessions_col = db["sessions"]
 history_col = db["history"]
 admins_col = db["admins"]
 
-# --- ADMINS ---
+# --- ADMINS (Authorized Users) ---
 def get_admins_db():
     return [x["admin_id"] for x in admins_col.find()]
 
-# --- SESSIONS (User Specific) ---
+def add_admin_db(uid):
+    admins_col.update_one({"admin_id": uid}, {"$set": {"admin_id": uid}}, upsert=True)
+
+def remove_admin_db(uid):
+    admins_col.delete_one({"admin_id": uid})
+
+# --- SESSIONS ---
 def save_session(owner_id, session_str):
     sessions_col.update_one(
         {"owner_id": owner_id}, 
@@ -29,14 +35,9 @@ def save_session(owner_id, session_str):
         upsert=True
     )
 
-def load_session(owner_id):
-    res = sessions_col.find_one({"owner_id": owner_id})
-    return res["data"] if res else None
-
 def get_last_active_session():
-    # Returns the most recently updated session that has an owner_id
-    res = sessions_col.find_one({"owner_id": {"$exists": True}}, sort=[("_id", -1)])
-    return res
+    # Sirf wahi session uthayega jisme owner_id maujood ho (KeyError fix)
+    return sessions_col.find_one({"owner_id": {"$exists": True}}, sort=[("_id", -1)])
 
 def delete_session_db(owner_id):
     sessions_col.delete_one({"owner_id": owner_id})
@@ -46,11 +47,7 @@ def get_targets(owner_id):
     return [x["target_id"] for x in targets_col.find({"owner_id": owner_id})]
 
 def add_target(owner_id, tid):
-    targets_col.update_one(
-        {"target_id": tid, "owner_id": owner_id}, 
-        {"$set": {"target_id": tid, "owner_id": owner_id}}, 
-        upsert=True
-    )
+    targets_col.update_one({"target_id": tid, "owner_id": owner_id}, {"$set": {"target_id": tid, "owner_id": owner_id}}, upsert=True)
 
 def remove_target(owner_id, tid):
     targets_col.delete_one({"target_id": tid, "owner_id": owner_id})
@@ -59,28 +56,19 @@ def get_sources(owner_id):
     return [x["source_id"] for x in sources_col.find({"owner_id": owner_id})]
 
 def add_source_db(owner_id, sid):
-    sources_col.update_one(
-        {"source_id": sid, "owner_id": owner_id}, 
-        {"$set": {"source_id": sid, "owner_id": owner_id}}, 
-        upsert=True
-    )
+    sources_col.update_one({"source_id": sid, "owner_id": owner_id}, {"$set": {"source_id": sid, "owner_id": owner_id}}, upsert=True)
 
 def remove_source_db(owner_id, sid):
     sources_col.delete_one({"source_id": sid, "owner_id": owner_id})
 
-# --- SETTINGS ---
+# --- SETTINGS & STATS ---
 def get_delay(owner_id):
     s = settings_col.find_one({"owner_id": owner_id})
     return int(s["value"]) if s else 5
 
 def set_delay_db(owner_id, sec):
-    settings_col.update_one(
-        {"owner_id": owner_id}, 
-        {"$set": {"value": int(sec), "owner_id": owner_id}}, 
-        upsert=True
-    )
+    settings_col.update_one({"owner_id": owner_id}, {"$set": {"value": int(sec), "owner_id": owner_id}}, upsert=True)
 
-# --- STATS & HISTORY ---
 def inc_count(owner_id):
     count_col.update_one({"owner_id": owner_id}, {"$inc": {"value": 1}}, upsert=True)
 
