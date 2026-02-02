@@ -79,7 +79,7 @@ A small Flask server is running in the background. If you open the hosted URL, y
 `Need more help? Just message the Repo Owner.` MYBOTS
 
 -----
-## 💥 Credits: [𝐖𝐎𝐎𝐃𝐜𝐫𝐚𝐟𝐭](https://t.me/mybots23)
+## 💥 Credits: [MY BOTS](https://t.me/mybots23)
 
 
 ## 📅 Last Update 🔄 On: `14/02/2026`
