@@ -21,12 +21,6 @@ admins_col = db["admins"]
 def get_admins_db():
     return [x["admin_id"] for x in admins_col.find()]
 
-def add_admin_db(uid):
-    admins_col.update_one({"admin_id": uid}, {"$set": {"admin_id": uid}}, upsert=True)
-
-def remove_admin_db(uid):
-    admins_col.delete_one({"admin_id": uid})
-
 # --- SESSIONS (User Specific) ---
 def save_session(owner_id, session_str):
     sessions_col.update_one(
@@ -40,9 +34,9 @@ def load_session(owner_id):
     return res["data"] if res else None
 
 def get_last_active_session():
-    # Returns the most recently updated session
-    res = sessions_col.find_one(sort=[("_id", -1)])
-    return res if res else None
+    # Returns the most recently updated session that has an owner_id
+    res = sessions_col.find_one({"owner_id": {"$exists": True}}, sort=[("_id", -1)])
+    return res
 
 def delete_session_db(owner_id):
     sessions_col.delete_one({"owner_id": owner_id})
@@ -74,7 +68,7 @@ def add_source_db(owner_id, sid):
 def remove_source_db(owner_id, sid):
     sources_col.delete_one({"source_id": sid, "owner_id": owner_id})
 
-# --- SETTINGS (Delay per user) ---
+# --- SETTINGS ---
 def get_delay(owner_id):
     s = settings_col.find_one({"owner_id": owner_id})
     return int(s["value"]) if s else 5
@@ -86,13 +80,9 @@ def set_delay_db(owner_id, sec):
         upsert=True
     )
 
-# --- STATS ---
+# --- STATS & HISTORY ---
 def inc_count(owner_id):
-    count_col.update_one(
-        {"owner_id": owner_id}, 
-        {"$inc": {"value": 1}}, 
-        upsert=True
-    )
+    count_col.update_one({"owner_id": owner_id}, {"$inc": {"value": 1}}, upsert=True)
 
 def get_count(owner_id):
     c = count_col.find_one({"owner_id": owner_id})
