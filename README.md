@@ -19,47 +19,34 @@ We’ve added several useful features and commands to help you control the bot b
 
 5. 👉  All commands list 🌟 
   
-       ``` /status 
-        ⚡️ View bot status  
+       ```
+         
+         /login - 🔐 Account login
+         /logout - 🚪 Session delete 
+         /cancel - ❌ Current process stop
+         Settings:
+         /on | /off - ✅ Forwarding chalu/band
+         /setdelay [Sec] - ⏱ Delay set karein
+         /skip - 🛹 Agla message skip karein
+         /resume - 🏹 Forwarding firse chalu karein
 
-        /setdelay [Sec] 
-        ⏱️ Set the delay time.
-   
-        /addadmin
-        ✅ User 1213456789 added as admin.
+         Management:
+         /addsource [ID] | /remsource [ID]
+         /listsources - 📄 Sources dekhein
+         /addtarget [ID] | /removetarget [ID]
+         /listtargets - 🎯 Targets dekhein
 
-        /removeadmin
-        ❌ User 1213456789 removed from admins.
-   
-        /skip 
-        🛹 Skip to next message  
+         Stats:
+         /count - 📊 Total messages count
+         /noor - 👀 Detailed Report
+         /status - ⚡ Bot status
 
-        /resume 
-        🏹 Start forwarding  
-
-        /on 
-        ✅ Launch the bot   
-
-        /off 
-        📴 Close the bot 
-
-        /addtarget [ID] 
-        ✅ Add target  
-
-        /removetarget [ID] 
-        😡 Remove target  
-
-        /listtargets 
-        🆔 View Target ID
-
-        /noor /noor
-        👀 Shows a detailed status report including:
-
-        /count
-        📊 Total Forwarded Files
-
-        /restart  
-        ♻️ Restarts the bot safely.```
+         Owner Only:
+         /addadmin [ID] - 👤 Naya admin banayein
+         /ban [ID] - 🚫 User ban karein
+         /unban [ID] - 😇 User unban karein
+         /removeuser [ID] - 🗑 User data wipe karein
+         /restart - ♻ Bot restart karein```
 
 -----
 
@@ -69,7 +56,7 @@ We’ve added several useful features and commands to help you control the bot b
 # ✅ Telegram API credentials
    - `API_ID`=667788990
    - `API_HASH`=wwq8325ba83751dfade998899988gh
-   - `SESSION_STRING`=1BtsOGkBu4xsJ0-hjlJkH30Iaz-1Trsdqki61DAhYZz0Dcp1wdk=
+   - `BOT_TOKEN`=enter your bot token
 
 # 🆔 Telegram channel/chat IDs 
    - `SOURCE_CHAT_ID`=-1001234567890
@@ -89,32 +76,15 @@ We’ve added several useful features and commands to help you control the bot b
 # 🚀 Server port 
    - `PORT`=8080
 
- 
-## 🔧 Session String Generator [🔗 Telethon Session String Generat](https://colab.research.google.com/github/SudoR2spr/Telethon-Session-Generator/blob/master/Telethon%20Session%20Generator/session-op.ipynb)
-
-## 🌐 Supported ⚡️ koyeb
-
-<a href="https://app.koyeb.com/deploy?type=git&repository=github.com/SudoR2spr/Auto-Forward-User-Bot&branch=master&name=master">
-  <img src="https://www.koyeb.com/static/images/deploy/button.svg" alt="Deploy On Koyeb">
-
-## 🌐 Deploy To Heroku
-
-[![Deploy To Heroku](https://www.herokucdn.com/deploy/button.svg)](https://dashboard.heroku.com/new?button-url=https://github.com/SudoR2spr/Auto-Forward-User-Bot&template=https://github.com/SudoR2spr/Auto-Forward-User-Bot)
-
-<a href="https://dashboard.heroku.com/new?template=https://github.com/SudoR2spr/Auto-Forward-User-Bot" target="_blank">
-  <img src="https://www.herokucdn.com/deploy/button.svg" alt="Deploy to Heroku" style="height: 50px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-</a>
-
 
 ## 🌐 Web Interface:
 A small Flask server is running in the background. If you open the hosted URL, you’ll see:  
-## 🤖 Activate the Angel bot!
+## 🤖 Activate the MY bot!
 
-`Need more help? Just message the Repo Owner.` 𝐖𝐎𝐎𝐃𝐜𝐫𝐚𝐟𝐭
+`Need more help? Just message the Repo Owner.` MYBOTS
 
 -----
-## 💥 Credits: [𝐖𝐎𝐎𝐃𝐜𝐫𝐚𝐟𝐭](https://t.me/Farooq_is_KING)
+## 💥 Credits: [𝐖𝐎𝐎𝐃𝐜𝐫𝐚𝐟𝐭](https://t.me/mybots23)
 
--  [![Contact Me On Telegram](https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/Farooq_is_king)
 
-## 📅 Last Update 🔄 On: `24/04/2025`
+## 📅 Last Update 🔄 On: `14/02/2026`
