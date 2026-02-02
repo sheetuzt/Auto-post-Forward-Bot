@@ -63,15 +63,10 @@ We’ve added several useful features and commands to help you control the bot b
    - `TARGET_CHAT_ID`=-1002888859999
 
 # 🔗 MongoDB connection URI 
-   - `MONGO_URI`=mongodb+srv://woodcraft:angellol@cluster0-&appName=Cluster0
+   - `MONGO_URI`=mongodb+srv://mybots:angellol@cluster0-&appName=Cluster0
 
 # 👤 Bot admin user IDs (comma-separated if multiple) 
    - `DEFAULT_ADMINS`=123456789
-  
-# 🌄 Image URLs (can be used in bot responses) 
-   - `STATUS_URL`=https://i.imgur.com/1ARGsWp.png
-   - `WOODCRAFT_URL`=https://i.imgur.com/1ARGsWp.png
-   - `NOOR_URL`=https://i.imgur.com/E5zwKTY.png
 
 # 🚀 Server port 
    - `PORT`=8080
