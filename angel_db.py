@@ -24,19 +24,18 @@ def is_admin_db(uid):
 def add_admin_db(uid):
     admins_col.update_one({"admin_id": uid}, {"$set": {"admin_id": uid}}, upsert=True)
 
-# --- SESSION (User Specific) ---
+def remove_admin_db(uid):
+    admins_col.delete_one({"admin_id": uid})
+
+# --- SESSION (Multi-User) ---
 def save_session(uid, session_str):
     sessions_col.update_one({"user_id": uid}, {"$set": {"data": session_str}}, upsert=True)
 
-def load_session(uid):
-    res = sessions_col.find_one({"user_id": uid})
-    return res["data"] if res else None
-
 def delete_session_db(uid):
-    # MongoDB se user ka session poori tarah khatam
+    # MongoDB se user ka session permanent delete
     sessions_col.delete_one({"user_id": uid})
 
-# --- TARGETS & SOURCES (User Specific) ---
+# --- TARGETS (User Specific) ---
 def get_targets(uid):
     return [x["target_id"] for x in targets_col.find({"user_id": uid})]
 
@@ -46,6 +45,7 @@ def add_target(uid, tid):
 def remove_target(uid, tid):
     targets_col.delete_one({"target_id": tid, "user_id": uid})
 
+# --- SOURCES (User Specific) ---
 def get_sources(uid):
     return [x["source_id"] for x in sources_col.find({"user_id": uid})]
 
