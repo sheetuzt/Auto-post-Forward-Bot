@@ -8,7 +8,7 @@ MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db = client["AutoForwardBot"]
 
-# [span_2](start_span)[span_3](start_span)Collections[span_2](end_span)[span_3](end_span)
+# Collections
 targets_col = db["targets"]
 sources_col = db["sources"]
 admins_col = db["admins"]
@@ -24,6 +24,7 @@ def ban_user_db(uid): banned_col.update_one({"user_id": uid}, {"$set": {"user_id
 def unban_user_db(uid): banned_col.delete_one({"user_id": uid})
 def is_admin_db(uid): return admins_col.find_one({"admin_id": uid}) is not None
 def add_admin_db(uid): admins_col.update_one({"admin_id": uid}, {"$set": {"admin_id": uid}}, upsert=True)
+def get_admins_db(): return [x["admin_id"] for x in admins_col.find()]
 
 # --- USER DATA WIPE ---
 def full_remove_user_db(uid):
