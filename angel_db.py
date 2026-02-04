@@ -8,7 +8,7 @@ MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db = client["AutoForwardBot"]
 
-# Collections
+# [span_2](start_span)[span_3](start_span)Collections[span_2](end_span)[span_3](end_span)
 targets_col = db["targets"]
 sources_col = db["sources"]
 admins_col = db["admins"]
