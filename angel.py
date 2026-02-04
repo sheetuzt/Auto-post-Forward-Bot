@@ -2,6 +2,7 @@ import os
 import sys
 import asyncio
 import threading
+import re
 from flask import Flask
 from telethon import TelegramClient, events, errors
 from telethon.sessions import StringSession
@@ -26,7 +27,6 @@ user_clients = {}
 login_state = {}
 skip_next_msg = {}
 
-# --- AUTH CHECKS ---
 def is_owner(uid): return uid in DEFAULT_ADMINS
 def is_authorized(uid):
     if is_banned_db(uid): return False
@@ -35,244 +35,272 @@ def is_authorized(uid):
 # --- START & HELP ---
 @bot.on(events.NewMessage(pattern=r"(?i)^/start"))
 async def start(e):
-    if not is_authorized(e.sender_id): return await e.reply("❌ Unauthorized.")
-    
+    if not is_authorized(e.sender_id): return
     msg = """
-🌟 **Auto Forward Bot (Complete)** 🌟
+🌟 **Auto Forward Bot (Complete Edition)** 🌟
 
-**Session:**
-/login - 🔐 Account login karein
-/logout - 🚪 Session delete karein
-/cancel - ❌ Current process stop karein
+**Session Management:**
+/login - 🔐 Login with OTP & 2FA
+/logout - 🚪 Delete session
+/cancel - ❌ Cancel process
 
-**Settings:**
-/on | /off - ✅ Forwarding chalu/band
-/setdelay [Sec] - ⏱ Delay set karein
-/skip - 🛹 Agla message skip karein
-/resume - 🏹 Forwarding firse chalu karein
+**Forwarding Settings:**
+/on | /off | /resume - Start/Stop
+/status | /noor - Stats & Report
+/setdelay [Sec] - Delay manage
+/skip - Skip next message
+
+**Content Cleaning (NEW):**
+/addfilter [word] - Remove specific word
+/remfilter [word] - Delete word filter
+/listfilters - List all filters
+/endtext [Text] - Add footer
+/remendtext - Remove footer
+/listendtext - Check footer
 
 **Management:**
-/addsource [ID] | /remsource [ID]
-/listsources - 📄 Sources dekhein
-/addtarget [ID] | /removetarget [ID]
-/listtargets - 🎯 Targets dekhein
-
-**Stats:**
-/count - 📊 Total messages count
-/noor - 👀 Detailed Report
-/status - ⚡ Bot status
+/addsource | /remsource | /listsources
+/addtarget | /removetarget | /listtargets
 
 **Owner Only:**
-/addadmin [ID] - 👤 Naya admin banayein
-/ban [ID] - 🚫 User ban karein
-/unban [ID] - 😇 User unban karein
-/removeuser [ID] - 🗑 User data wipe karein
-/restart - ♻ Bot restart karein
+/addadmin | /ban | /unban | /removeuser | /restart
     """
     await e.reply(msg)
 
-# --- OWNER COMMANDS ---
-@bot.on(events.NewMessage(pattern=r"(?i)^/addadmin (\d+)"))
-async def add_adm(e):
-    if not is_owner(e.sender_id): return
-    uid = int(e.pattern_match.group(1))
-    add_admin_db(uid)
-    await e.reply(f"✅ User `{uid}` ko admin bana diya gaya.")
-
-@bot.on(events.NewMessage(pattern=r"(?i)^/ban (\d+)"))
-async def ban_u(e):
-    if not is_owner(e.sender_id): return
-    uid = int(e.pattern_match.group(1))
-    ban_user_db(uid)
-    if uid in user_clients:
-        await user_clients[uid].disconnect()
-        del user_clients[uid]
-    await e.reply(f"🚫 User `{uid}` BANNED.")
-
-@bot.on(events.NewMessage(pattern=r"(?i)^/unban (\d+)"))
-async def unban_u(e):
-    if not is_owner(e.sender_id): return
-    uid = int(e.pattern_match.group(1))
-    unban_user_db(uid)
-    await e.reply(f"😇 User `{uid}` UNBANNED.")
-
-@bot.on(events.NewMessage(pattern=r"(?i)^/removeuser (\d+)"))
-async def rem_u(e):
-    if not is_owner(e.sender_id): return
-    uid = int(e.pattern_match.group(1))
-    full_remove_user_db(uid)
-    if uid in user_clients:
-        await user_clients[uid].disconnect()
-        del user_clients[uid]
-    await e.reply(f"🗑 User `{uid}` ka data wipe kar diya gaya.")
-
-# --- SESSION MGMT ---
+# --- LOGIN HANDLER (OTP + 2FA) ---
 @bot.on(events.NewMessage(pattern=r"(?i)^/login"))
-async def login(e):
+async def login_start(e):
     if not is_authorized(e.sender_id): return
     login_state[e.sender_id] = {"step": "phone"}
-    await e.reply("📱 Phone number bhejo (+91...):")
+    await e.reply("📱 Phone number bhejein (e.g. +919876543210):")
 
 @bot.on(events.NewMessage)
-async def login_handler(e):
+async def handle_all_login(e):
     if e.sender_id not in login_state or e.text.startswith('/'): return
     state = login_state[e.sender_id]
+    
     try:
         if state["step"] == "phone":
-            temp = TelegramClient(StringSession(), API_ID, API_HASH)
-            await temp.connect()
-            state["phone"] = e.text.strip()
-            state["request"] = await temp.send_code_request(state["phone"])
-            state["client"] = temp
+            temp_client = TelegramClient(StringSession(), API_ID, API_HASH)
+            await temp_client.connect()
+            phone = e.text.strip()
+            state["phone"] = phone
+            state["client"] = temp_client
+            state["request"] = await temp_client.send_code_request(phone)
             state["step"] = "code"
-            await e.reply("✉ OTP (Space ke saath, e.g. 1 2 3 4 5):")
+            await e.reply("✉️ OTP bhejein (Spaces ke saath bhi chalega, e.g. 1 2 3 4 5):")
+            
         elif state["step"] == "code":
             otp = e.text.replace(" ", "")
             try:
                 await state["client"].sign_in(state["phone"], otp)
+                # Success
                 save_session(e.sender_id, state["client"].session.save())
                 login_state.pop(e.sender_id)
-                await e.reply("✅ Login Success! /restart karein.")
+                await e.reply("✅ Login Successful! /restart karein.")
             except errors.SessionPasswordNeededError:
-                state["step"] = "password"
-                await e.reply("🔐 2FA Password:")
-        elif state["step"] == "password":
-            await state["client"].sign_in(password=e.text.strip())
+                state["step"] = "2fa"
+                await e.reply("🔐 Two-Step Verification (2FA) Password bhejein:")
+            except Exception as err:
+                await e.reply(f"❌ OTP Error: {err}")
+                login_state.pop(e.sender_id)
+
+        elif state["step"] == "2fa":
+            password = e.text.strip()
+            await state["client"].sign_in(password=password)
             save_session(e.sender_id, state["client"].session.save())
             login_state.pop(e.sender_id)
-            await e.reply("✅ Login Success! /restart.")
-    except Exception as err:
-        await e.reply(f"❌ Error: {err}")
+            await e.reply("✅ 2FA Login Successful! /restart karein.")
+
+    except Exception as general_err:
+        await e.reply(f"❌ Error: {general_err}")
         login_state.pop(e.sender_id, None)
 
+# --- ALL OTHER COMMANDS ---
 @bot.on(events.NewMessage(pattern=r"(?i)^/logout"))
 async def logout(e):
     if not is_authorized(e.sender_id): return
     delete_session_db(e.sender_id)
-    if e.sender_id in user_clients:
-        await user_clients[e.sender_id].disconnect()
-        del user_clients[e.sender_id]
-    await e.reply("🚪 Logout Success! Session deleted from DB.")
+    await e.reply("🚪 Logout Success.")
 
-# --- SETTINGS COMMANDS ---
-@bot.on(events.NewMessage(pattern=r"(?i)^/on"))
-async def on_f(e):
+@bot.on(events.NewMessage(pattern=r"(?i)^/cancel"))
+async def cancel(e):
+    login_state.pop(e.sender_id, None)
+    await e.reply("❌ Process Cancelled.")
+
+@bot.on(events.NewMessage(pattern=r"(?i)^/(on|resume)"))
+async def resume_on(e):
     if not is_authorized(e.sender_id): return
     set_forwarding_db(e.sender_id, True)
-    await e.reply("✅ Forwarding ON")
+    await e.reply("✅ Forwarding ON.")
 
 @bot.on(events.NewMessage(pattern=r"(?i)^/off"))
-async def off_f(e):
+async def off_cmd(e):
     if not is_authorized(e.sender_id): return
     set_forwarding_db(e.sender_id, False)
-    await e.reply("📴 Forwarding OFF")
+    await e.reply("📴 Forwarding OFF.")
 
 @bot.on(events.NewMessage(pattern=r"(?i)^/setdelay (\d+)"))
-async def delay(e):
+async def delay_set(e):
     if not is_authorized(e.sender_id): return
-    sec = int(e.pattern_match.group(1))
+    sec = e.pattern_match.group(1)
     set_delay_db(e.sender_id, sec)
-    await e.reply(f"⏱ Delay set to {sec}s")
+    await e.reply(f"⏱ Delay set to {sec}s.")
 
 @bot.on(events.NewMessage(pattern=r"(?i)^/skip"))
-async def skip(e):
+async def skip_cmd(e):
     if not is_authorized(e.sender_id): return
     skip_next_msg[e.sender_id] = True
-    await e.reply("🛹 Next message skip hoga.")
+    await e.reply("⏭ Next message skip hoga.")
+
+# --- CONTENT COMMANDS ---
+@bot.on(events.NewMessage(pattern=r"(?i)^/addfilter (.*)"))
+async def filter_add(e):
+    if not is_authorized(e.sender_id): return
+    word = e.pattern_match.group(1).strip()
+    add_filter_db(e.sender_id, word)
+    await e.reply(f"🚫 Word `{word}` added to filters.")
+
+@bot.on(events.NewMessage(pattern=r"(?i)^/remfilter (.*)"))
+async def filter_rem(e):
+    if not is_authorized(e.sender_id): return
+    word = e.pattern_match.group(1).strip()
+    rem_filter_db(e.sender_id, word)
+    await e.reply(f"🗑 Filter removed for: `{word}`")
+
+@bot.on(events.NewMessage(pattern=r"(?i)^/listfilters"))
+async def filter_list(e):
+    if not is_authorized(e.sender_id): return
+    words = get_filters_db(e.sender_id)
+    await e.reply(f"📋 **Active Filters:**\n`{', '.join(words) if words else 'None'}`")
+
+@bot.on(events.NewMessage(pattern=r"(?i)^/endtext (.*)"))
+async def et_set(e):
+    if not is_authorized(e.sender_id): return
+    txt = e.pattern_match.group(1).strip()
+    set_endtext_db(e.sender_id, txt)
+    await e.reply("📝 Endtext set.")
+
+@bot.on(events.NewMessage(pattern=r"(?i)^/remendtext"))
+async def et_rem(e):
+    if not is_authorized(e.sender_id): return
+    rem_endtext_db(e.sender_id)
+    await e.reply("🗑 Endtext removed.")
+
+@bot.on(events.NewMessage(pattern=r"(?i)^/listendtext"))
+async def et_list(e):
+    if not is_authorized(e.sender_id): return
+    et = get_endtext_db(e.sender_id)
+    await e.reply(f"📄 **Footer:**\n`{et if et else 'Not Set'}`")
 
 # --- SOURCE/TARGET MGMT ---
 @bot.on(events.NewMessage(pattern=r"(?i)^/addsource (-?\d+)"))
-async def add_s(e):
+async def asrc(e):
     if not is_authorized(e.sender_id): return
     add_source_db(e.sender_id, int(e.pattern_match.group(1)))
-    await e.reply("📁 Source Added.")
+    await e.reply("✅ Source Added.")
 
 @bot.on(events.NewMessage(pattern=r"(?i)^/remsource (-?\d+)"))
-async def rem_s(e):
+async def rsrc(e):
     if not is_authorized(e.sender_id): return
     remove_source_db(e.sender_id, int(e.pattern_match.group(1)))
     await e.reply("🗑 Source Removed.")
 
 @bot.on(events.NewMessage(pattern=r"(?i)^/listsources"))
-async def list_s(e):
+async def lsrc(e):
     if not is_authorized(e.sender_id): return
-    await e.reply(f"📄 Sources: `{get_sources(e.sender_id)}`")
+    await e.reply(f"📄 **Sources:**\n`{get_sources(e.sender_id)}`")
 
 @bot.on(events.NewMessage(pattern=r"(?i)^/addtarget (-?\d+)"))
-async def add_t(e):
+async def atgt(e):
     if not is_authorized(e.sender_id): return
-    add_target(e.sender_id, int(e.pattern_match.group(1)))
+    add_target_db(e.sender_id, int(e.pattern_match.group(1)))
     await e.reply("🎯 Target Added.")
 
 @bot.on(events.NewMessage(pattern=r"(?i)^/removetarget (-?\d+)"))
-async def rem_t(e):
+async def rtgt(e):
     if not is_authorized(e.sender_id): return
-    remove_target(e.sender_id, int(e.pattern_match.group(1)))
-    await e.reply("😡 Target Removed.")
+    remove_target_db(e.sender_id, int(e.pattern_match.group(1)))
+    await e.reply("🗑 Target Removed.")
 
 @bot.on(events.NewMessage(pattern=r"(?i)^/listtargets"))
-async def list_t(e):
+async def ltgt(e):
     if not is_authorized(e.sender_id): return
-    await e.reply(f"🆔 Targets: `{get_targets(e.sender_id)}`")
+    await e.reply(f"🎯 **Targets:**\n`{get_targets(e.sender_id)}`")
 
-# --- STATS ---
+# --- STATS & ADMIN ---
 @bot.on(events.NewMessage(pattern=r"(?i)^/count"))
-async def count(e):
+async def count_c(e):
     if not is_authorized(e.sender_id): return
-    await e.reply(f"📊 Total: {get_count(e.sender_id)}")
+    await e.reply(f"📊 Total Count: {get_count_db(e.sender_id)}")
 
-@bot.on(events.NewMessage(pattern=r"(?i)^/noor"))
-async def noor(e):
+@bot.on(events.NewMessage(pattern=r"(?i)^/(status|noor)"))
+async def status_r(e):
     if not is_authorized(e.sender_id): return
-    msg = f"👤 ID: `{e.sender_id}`\n📈 Count: {get_count(e.sender_id)}\n⏱ Delay: {get_delay(e.sender_id)}s\n📁 Src: {len(get_sources(e.sender_id))}\n🎯 Trg: {len(get_targets(e.sender_id))}"
+    uid = e.sender_id
+    msg = (f"📈 **Report**\nForwarding: {get_forwarding_db(uid)}\n"
+           f"Delay: {get_delay(uid)}s\nCount: {get_count_db(uid)}\n"
+           f"Filters: {len(get_filters_db(uid))}\nEndtext: {'Yes' if get_endtext_db(uid) else 'No'}")
     await e.reply(msg)
 
-# --- SYSTEM ---
+@bot.on(events.NewMessage(pattern=r"(?i)^/addadmin (\d+)"))
+async def aadmin(e):
+    if not is_owner(e.sender_id): return
+    add_admin_db(int(e.pattern_match.group(1)))
+    await e.reply("👤 Admin added.")
+
+@bot.on(events.NewMessage(pattern=r"(?i)^/ban (\d+)"))
+async def banu(e):
+    if not is_owner(e.sender_id): return
+    ban_user_db(int(e.pattern_match.group(1)))
+    await e.reply("🚫 User banned.")
+
 @bot.on(events.NewMessage(pattern=r"(?i)^/restart"))
-async def restart(e):
+async def rest(e):
     if not is_authorized(e.sender_id): return
     await e.reply("♻ Restarting...")
     os.execl(sys.executable, sys.executable, *sys.argv)
 
-@bot.on(events.NewMessage(pattern=r"(?i)^/cancel"))
-async def cancel(e):
-    login_state.pop(e.sender_id, None)
-    await e.reply("❌ Cancelled.")
-
-# --- FORWARDER ENGINE ---
-async def run_user_clients():
-    sessions = sessions_col.find({"user_id": {"$exists": True}})
-    for s in sessions:
-        uid = s.get("user_id")
+# --- ENGINE ---
+async def start_engine():
+    all_s = get_all_sessions()
+    for s in all_s:
+        uid, token = s["user_id"], s["data"]
         if is_banned_db(uid): continue
-        token = s.get("data")
-        if not uid or not token: continue
         try:
-            u_client = TelegramClient(StringSession(token), API_ID, API_HASH)
-            await u_client.start()
-            user_clients[uid] = u_client
+            client = TelegramClient(StringSession(token), API_ID, API_HASH)
+            await client.start()
+            user_clients[uid] = client
             
-            @u_client.on(events.NewMessage)
-            async def h(ev, c_uid=uid):
-                if not get_forwarding_db(c_uid): return
-                if ev.chat_id not in get_sources(c_uid): return
+            @client.on(events.NewMessage)
+            async def forwarder(ev, c_uid=uid):
+                if not get_forwarding_db(c_uid) or ev.chat_id not in get_sources(c_uid): return
                 if skip_next_msg.get(c_uid):
                     skip_next_msg[c_uid] = False
                     return
+                
+                # Cleaning
+                text = ev.text or ""
+                text = re.sub(r'https?://\S+|t\.me/\S+', '', text) # Links
+                for w in get_filters_db(c_uid): text = re.compile(re.escape(w), re.IGNORECASE).sub('', text) # Word Filters
+                
+                # Footer
+                footer = get_endtext_db(c_uid)
+                final = f"{text.strip()}\n\n{footer}" if footer else text.strip()
+                
                 for t in get_targets(c_uid):
                     if not is_forwarded(c_uid, ev.id, t):
                         try:
-                            await ev.client.send_message(t, ev.message)
+                            await ev.client.send_message(t, final, file=ev.media)
                             mark_forwarded(c_uid, ev.id, t)
                             inc_count(c_uid)
                             await asyncio.sleep(get_delay(c_uid))
                         except: pass
-        except Exception as e: print(f"Client {uid} Error: {e}")
+        except: pass
 
 async def main():
     threading.Thread(target=run_web, daemon=True).start()
-    await run_user_clients()
-    print("Bot is running...")
+    await start_engine()
     await bot.run_until_disconnected()
 
 if __name__ == "__main__":
